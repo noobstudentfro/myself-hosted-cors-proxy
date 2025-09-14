@@ -1,10 +1,21 @@
-// /api/proxy.js
-
+// api/proxy.js
 export default async function handler(req, res) {
+  // Allow all origins (CORS)
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+
+  // Handle preflight (OPTIONS request)
+  if (req.method === "OPTIONS") {
+    res.status(200).end();
+    return;
+  }
+
   const targetUrl = req.query.url;
 
   if (!targetUrl) {
-    return res.status(400).json({ error: "Missing ?url parameter" });
+    res.status(400).json({ error: "Missing ?url parameter" });
+    return;
   }
 
   try {
@@ -12,29 +23,27 @@ export default async function handler(req, res) {
       method: req.method,
       headers: {
         ...req.headers,
-        host: undefined,        // prevent forwarding host
-        "x-vercel-deployment-url": undefined,
+        host: new URL(targetUrl).host, // avoid host mismatch
       },
       body: req.method !== "GET" && req.method !== "HEAD" ? req.body : undefined,
     });
 
-    const contentType = response.headers.get("content-type");
-    res.setHeader("Content-Type", contentType || "application/json");
+    // Forward status
+    res.status(response.status);
 
-    // Allow all origins (CORS)
-    res.setHeader("Access-Control-Allow-Origin", "*");
-    res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    // Forward headers (except for CORS which we already set)
+    response.headers.forEach((value, key) => {
+      if (!["access-control-allow-origin", "access-control-allow-methods", "access-control-allow-headers"].includes(key.toLowerCase())) {
+        res.setHeader(key, value);
+      }
+    });
 
-    if (req.method === "OPTIONS") {
-      return res.status(200).end();
-    }
-
-    const data = await response.text();
-    res.status(response.status).send(data);
-
+    // Forward body
+    const buffer = await response.arrayBuffer();
+    res.send(Buffer.from(buffer));
   } catch (err) {
     console.error("Proxy error:", err);
     res.status(500).json({ error: "Proxy request failed", details: err.message });
   }
 }
+
