@@ -1,60 +1,45 @@
 // server.js
-import express from "express";
-import fetch from "node-fetch";
+const express = require("express");
+const fetch = require("node-fetch");
+const cors = require("cors");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Middleware to allow JSON bodies
-app.use(express.json());
+app.use(cors());
 
-// CORS headers (allow everything — you can restrict later if needed)
-app.use((req, res, next) => {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
-  next();
+// Root route (for quick check)
+app.get("/", (req, res) => {
+  res.send("✅ Proxy is running. Use /proxy?url=...");
 });
 
-// Proxy endpoint
-app.use("/proxy", async (req, res) => {
-  const target = req.query.url;
-  if (!target) {
-    return res.status(400).json({ error: "Missing target URL. Use ?url=..." });
+// Proxy route
+app.get("/proxy", async (req, res) => {
+  const targetUrl = req.query.url;
+
+  if (!targetUrl) {
+    return res.status(400).json({ error: "Missing target URL" });
   }
 
   try {
-    const options = {
-      method: req.method,
-      headers: { ...req.headers },
-    };
-
-    if (req.method !== "GET" && req.body) {
-      options.body = JSON.stringify(req.body);
-    }
-
-    // Forward request
-    const response = await fetch(target, options);
-
-    // Pass through status + headers
-    res.status(response.status);
-    response.headers.forEach((value, key) => {
-      res.setHeader(key, value);
+    const response = await fetch(targetUrl, {
+      headers: {
+        "User-Agent": "Mozilla/5.0",
+        "Content-Type": "application/json",
+      },
     });
+
+    const contentType = response.headers.get("content-type");
+    res.setHeader("content-type", contentType);
 
     const data = await response.text();
     res.send(data);
-
   } catch (err) {
     console.error("Proxy error:", err);
-    res.status(500).json({ error: "Proxy request failed", details: err.message });
+    res.status(500).json({ error: "Proxy request failed" });
   }
 });
 
-// Start server (for local testing, Vercel ignores this but keeps for dev)
-if (process.env.NODE_ENV !== "production") {
-  app.listen(PORT, () => console.log(`Proxy running at http://localhost:${PORT}`));
-}
-
-export default app;
-
+app.listen(PORT, () => {
+  console.log(`✅ Proxy server running on port ${PORT}`);
+});
