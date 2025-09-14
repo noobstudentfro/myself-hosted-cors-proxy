@@ -1,47 +1,60 @@
+// server.js
 import express from "express";
-import cors from "cors";
 import fetch from "node-fetch";
 
 const app = express();
-app.use(cors());
+const PORT = process.env.PORT || 3000;
 
-// Optional: parse JSON bodies for POST/PUT
+// Middleware to allow JSON bodies
 app.use(express.json());
 
-app.all("/*", async (req, res) => {
-  try {
-    // Remove leading slash and decode the target URL
-    const targetUrl = decodeURIComponent(req.path.substring(1));
+// CORS headers (allow everything — you can restrict later if needed)
+app.use((req, res, next) => {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  next();
+});
 
-    // Validate URL
-    if (!/^https?:\/\//i.test(targetUrl)) {
-      return res.status(400).json({ error: "Invalid or missing target URL" });
+// Proxy endpoint
+app.use("/proxy", async (req, res) => {
+  const target = req.query.url;
+  if (!target) {
+    return res.status(400).json({ error: "Missing target URL. Use ?url=..." });
+  }
+
+  try {
+    const options = {
+      method: req.method,
+      headers: { ...req.headers },
+    };
+
+    if (req.method !== "GET" && req.body) {
+      options.body = JSON.stringify(req.body);
     }
 
-    // Forward the request to the target URL
-    const response = await fetch(targetUrl, {
-      method: req.method,
-      headers: {
-        ...req.headers,
-        host: new URL(targetUrl).host // preserve hostname for SSL
-      },
-      body: ["GET", "HEAD"].includes(req.method) ? undefined : req.body
-    });
+    // Forward request
+    const response = await fetch(target, options);
 
-    // Copy status and headers
+    // Pass through status + headers
     res.status(response.status);
     response.headers.forEach((value, key) => {
       res.setHeader(key, value);
     });
 
-    // Send the response body
-    const buffer = await response.buffer();
-    res.send(buffer);
+    const data = await response.text();
+    res.send(data);
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("Proxy error:", err);
+    res.status(500).json({ error: "Proxy request failed", details: err.message });
   }
 });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`🚀 Proxy running on port ${PORT}`));
+// Start server (for local testing, Vercel ignores this but keeps for dev)
+if (process.env.NODE_ENV !== "production") {
+  app.listen(PORT, () => console.log(`Proxy running at http://localhost:${PORT}`));
+}
+
+export default app;
+
